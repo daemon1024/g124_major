@@ -20,6 +20,7 @@ import (
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
+	"github.com/fatih/color"
 	"golang.org/x/sys/unix"
 
 	"github.com/docker/docker/api/types"
@@ -33,6 +34,7 @@ type eventBPF struct {
 	PidNS uint32
 	MntNS uint32
 	Comm  [80]uint8
+	RC    uint8
 }
 
 // nskey Structure acts as an Identifier for containers
@@ -42,11 +44,13 @@ type nskey struct {
 }
 
 type deets struct {
-	ContainerID   string
-	ContainerName string
-	ContainerPID  string
-	ProcessName   string
-	ProcessPID    uint32
+	ContainerID    string
+	ContainerName  string
+	ContainerImage string
+	ContainerPID   string
+	ProcessName    string
+	ProcessPID     uint32
+	ReturnCode     uint8
 }
 
 var cmap map[nskey]deets
@@ -72,6 +76,7 @@ func main() {
 
 		c.ContainerID = inspect.ID
 		c.ContainerName = strings.TrimLeft(inspect.Name, "/")
+		c.ContainerImage = inspect.Config.Image + "/" + inspect.Image
 		pid := strconv.Itoa(inspect.State.Pid)
 		c.ContainerPID = pid
 
@@ -149,12 +154,19 @@ func main() {
 
 		if val, ok := cmap[key]; ok {
 			val.ProcessPID = event.Pid
+			val.ReturnCode = event.RC
 			val.ProcessName = unix.ByteSliceToString(event.Comm[:])
 			b, err := json.MarshalIndent(val, "", "  ")
 			if err != nil {
 				fmt.Println("error:", err)
 			}
-			fmt.Print(string(b))
+			if event.RC == 1 {
+				color.Set(color.FgRed)
+				fmt.Print(string(b))
+				color.Unset()
+			} else {
+				fmt.Print(string(b))
+			}
 
 		}
 
